@@ -1,34 +1,60 @@
 package main
 
 import (
+	"context"
 	"log"
-	"net/http"
-	h "ride-sharing/services/trip-service/internal/infrastructure/http"
+	"net"
+	"os"
+	"os/signal"
+	"ride-sharing/services/trip-service/internal/infrastructure/grpc"
 	"ride-sharing/services/trip-service/internal/infrastructure/repository"
 	"ride-sharing/services/trip-service/internal/service"
 	"ride-sharing/shared/env"
+	"syscall"
+
+	grpcserver "google.golang.org/grpc"
 )
 
 var (
-	httpAddr = env.GetString("HTTP_ADDR", ":8083")
+	GrpcAddr = env.GetString("GRPC_ADDR", ":9093")
 )
 
 func main() {
 	inMemRepo := repository.NewInMemRepository()
 	svc := service.NewTripService(inMemRepo)
 
-	mux := http.NewServeMux()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	httpHandler := h.HttpHandler{svc}
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		<-sigChan
+		log.Println("Shutting down...")
+		cancel()
+	}()
 
-	mux.HandleFunc("POST /preview", httpHandler.HandleTripPreview)
-
-	server := &http.Server{
-		Addr:    httpAddr,
-		Handler: mux,
+	lis, err := net.Listen("tcp", GrpcAddr)
+	if err != nil {
+		log.Fatalf("Failed to start gRPC server: %v", err)
 	}
 
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
+	grpcServer := grpcserver.NewServer()
+	// TODO init grpc handler
+
+	grpc.NewGrpcHandler(grpcServer, svc)
+
+	log.Printf("Starting gRPC server on: %v", lis.Addr().String())
+
+	go func() {
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Printf("gRPC server exited with error: %v", err)
+			cancel()
+		}
+	}()
+
+	// wait for shutdown signal
+	<-ctx.Done()
+	log.Println("Shutting down...")
+	grpcServer.GracefulStop()
 }
