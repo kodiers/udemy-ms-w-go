@@ -5,8 +5,11 @@ import (
 	"log"
 	"ride-sharing/services/trip-service/internal/domain"
 	pb "ride-sharing/shared/proto/trip"
+	"ride-sharing/shared/types"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type GrpcHandler struct {
@@ -25,11 +28,26 @@ func NewGrpcHandler(server *grpc.Server, service domain.TripService) *GrpcHandle
 func (h *GrpcHandler) PreviewTrip(ctx context.Context, req *pb.PreviewTripRequest) (*pb.PreviewTripResponse, error) {
 	pickup := req.StartLocation
 	destination := req.EndLocation
-	t, err := h.service.GetRoute(ctx, pickup, destination)
+	pickupCors := types.Coordinate{
+		Latitude:  pickup.Latitude,
+		Longitude: pickup.Longitude,
+	}
+	destinationCors := types.Coordinate{
+		Latitude:  destination.Latitude,
+		Longitude: destination.Longitude,
+	}
+	t, err := h.service.GetRoute(ctx, pickupCors, destinationCors)
 	if err != nil {
 		log.Println(err)
+		return nil, status.Errorf(codes.Internal, "failed to get route: %v", err)
 	}
+
 	return &pb.PreviewTripResponse{
-		Route:
+		Route:     t.ToProto(),
+		RideFares: []*pb.RideFare{},
 	}, nil
+}
+
+func (h *GrpcHandler) CreateTrip(context.Context, *pb.CreateTripRequest) (*pb.CreateTripResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateTrip not implemented")
 }
