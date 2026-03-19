@@ -21,3 +21,8 @@ func (r *InMemRepository) CreateTrip(ctx context.Context, trip *domain.TripModel
 	r.trips[trip.ID.Hex()] = trip
 	return trip, nil
 }
+
+func (r *InMemRepository) SaveRideFare(ctx context.Context, fare *domain.RideFareModel) error {
+	r.rideFares[fare.ID.Hex()] = fare
+	return nil
+}
