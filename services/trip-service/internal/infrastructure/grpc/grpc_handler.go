@@ -43,7 +43,7 @@ func (h *GrpcHandler) PreviewTrip(ctx context.Context, req *pb.PreviewTripReques
 	}
 
 	estimatedFares := h.service.EstimatePackagesPriceWithRoute(t)
-	fares, err := h.service.GenerateTripFares(ctx, estimatedFares, req.UserID)
+	fares, err := h.service.GenerateTripFares(ctx, estimatedFares, req.UserID, t)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to generate trip fares: %v", err)
 	}
@@ -53,6 +53,17 @@ func (h *GrpcHandler) PreviewTrip(ctx context.Context, req *pb.PreviewTripReques
 	}, nil
 }
 
-func (h *GrpcHandler) CreateTrip(context.Context, *pb.CreateTripRequest) (*pb.CreateTripResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateTrip not implemented")
+func (h *GrpcHandler) CreateTrip(ctx context.Context, request *pb.CreateTripRequest) (*pb.CreateTripResponse, error) {
+	fareId := request.RideFareId
+	fare, err := h.service.GetAndValidateFare(ctx, fareId, request.UserID)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid ride fare: %v", err)
+	}
+	trip, err := h.service.CreateTrip(ctx, fare)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create trip: %v", err)
+	}
+	return &pb.CreateTripResponse{
+		TripID: trip.ID.Hex(),
+	}, nil
 }
