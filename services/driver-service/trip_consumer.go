@@ -17,7 +17,7 @@ func newTripEventConsumer(rabbitmq *messaging.RabbitMQ) *tripEventConsumer {
 }
 
 func (t *tripEventConsumer) Listen() error {
-	return t.rabbitmq.ConsumeMessages("hello", func(ctx context.Context, msg amqp.Delivery) error {
+	return t.rabbitmq.ConsumeMessages(messaging.FindAvailableDriversQueue, func(ctx context.Context, msg amqp.Delivery) error {
 		log.Printf("Received message: %s", msg.Body)
 		return nil
 	})

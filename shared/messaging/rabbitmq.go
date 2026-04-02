@@ -3,6 +3,7 @@ package messaging
 import (
 	"context"
 	"log"
+	"ride-sharing/shared/contracts"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -11,6 +12,10 @@ type RabbitMQ struct {
 	conn    *amqp.Connection
 	Channel *amqp.Channel
 }
+
+const (
+	TripExchange = "trips"
+)
 
 type MessageHandler func(ctx context.Context, msg amqp.Delivery) error
 
@@ -42,7 +47,8 @@ func (r *RabbitMQ) Close() {
 }
 
 func (r *RabbitMQ) PublishMessage(ctx context.Context, routingKey string, message string) error {
-	return r.Channel.PublishWithContext(ctx, "", "hello", false, false,
+	log.Printf("publishing message to %s with routing key %s", TripExchange, routingKey)
+	return r.Channel.PublishWithContext(ctx, TripExchange, routingKey, false, false,
 		amqp.Publishing{
 			ContentType:  "text/plain",
 			Body:         []byte(message),
@@ -81,9 +87,29 @@ func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) err
 }
 
 func (r *RabbitMQ) setupExchangesAndQueues() error {
-	_, err := r.Channel.QueueDeclare("hello", true, false, false, false, nil)
+	err := r.Channel.ExchangeDeclare(TripExchange, "topic", true, false, false, false, nil)
 	if err != nil {
 		return err
+	}
+	if err := r.declareAndBindQueue(
+		FindAvailableDriversQueue,
+		[]string{contracts.TripEventCreated, contracts.TripEventDriverNotInterested},
+		TripExchange); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *RabbitMQ) declareAndBindQueue(queueName string, messageTypes []string, exchange string) error {
+	q, err := r.Channel.QueueDeclare(queueName, true, false, false, false, nil)
+	if err != nil {
+		return err
+	}
+	for _, messageType := range messageTypes {
+		err = r.Channel.QueueBind(q.Name, messageType, exchange, false, nil)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
