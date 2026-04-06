@@ -66,7 +66,7 @@ func (h *GrpcHandler) CreateTrip(ctx context.Context, request *pb.CreateTripRequ
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create trip: %v", err)
 	}
-	err = h.publisher.PublishTripCreatedEvent(ctx)
+	err = h.publisher.PublishTripCreatedEvent(ctx, trip)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to publish trip created event: %v", err)
 	}

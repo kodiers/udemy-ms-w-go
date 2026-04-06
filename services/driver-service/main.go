@@ -46,7 +46,7 @@ func main() {
 	// TODO init grpc handler
 	NewGrpcHandler(grpcServer, service)
 
-	consumer := newTripEventConsumer(rabbitmq)
+	consumer := newTripEventConsumer(rabbitmq, service)
 	go func() {
 		if err := consumer.Listen(); err != nil {
 			log.Printf("Failed to start trip event consumer: %v", err)

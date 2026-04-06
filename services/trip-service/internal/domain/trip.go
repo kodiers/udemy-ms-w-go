@@ -17,6 +17,15 @@ type TripModel struct {
 	Driver   *pb.TripDriver
 }
 
+func (t *TripModel) ToProto() *pb.Trip {
+	return &pb.Trip{
+		Id:           t.ID.Hex(),
+		Status:       t.Status,
+		SelectedFare: t.RideFare.ToProto(),
+		Driver:       t.Driver,
+	}
+}
+
 type TripRepository interface {
 	CreateTrip(ctx context.Context, trip *TripModel) (*TripModel, error)
 	SaveRideFare(ctx context.Context, fare *RideFareModel) error
