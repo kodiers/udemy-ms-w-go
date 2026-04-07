@@ -5,27 +5,30 @@ import (
 	"net/http"
 	"ride-sharing/services/api-gateway/grpc_clients"
 	"ride-sharing/shared/contracts"
+	"ride-sharing/shared/messaging"
 	"ride-sharing/shared/proto/driver"
-
-	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
+var (
+	connManager = messaging.NewConnectionManager()
+)
 
-func handleRidersWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+func handleRidersWebSocket(w http.ResponseWriter, r *http.Request, rb *messaging.RabbitMQ) {
+	conn, err := connManager.Upgrade(w, r)
+
 	if err != nil {
 		log.Printf("websocket upgrade failed: %v", err)
 		return
 	}
+
 	defer conn.Close()
 	userId := r.URL.Query().Get("userID")
 	if userId == "" {
 		log.Println("userID is required")
 		return
 	}
+	connManager.Add(userId, conn)
+	defer connManager.Remove(userId)
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
@@ -36,12 +39,14 @@ func handleRidersWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleDriversWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+func handleDriversWebSocket(w http.ResponseWriter, r *http.Request, rb *messaging.RabbitMQ) {
+	conn, err := connManager.Upgrade(w, r)
+
 	if err != nil {
 		log.Printf("websocket upgrade failed: %v", err)
 		return
 	}
+
 	defer conn.Close()
 
 	userId := r.URL.Query().Get("userID")
@@ -54,10 +59,12 @@ func handleDriversWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Println("packageSlug is required")
 		return
 	}
+	connManager.Add(userId, conn)
 	ctx := r.Context()
 	driverService, err := grpc_clients.NewDriverServiceClient()
 	defer driverService.Close()
 	defer func() {
+		connManager.Remove(userId)
 		driverService.Client.UnregisterDriver(ctx, &driver.RegisterDriverRequest{
 			DriverID:    userId,
 			PackageSlug: packageSlug,
@@ -78,12 +85,22 @@ func handleDriversWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := contracts.WSMessage{
-		Type: "driver.cmd.register",
+		Type: contracts.DriverCmdRegister,
 		Data: driverData.Driver,
 	}
-	if err := conn.WriteJSON(msg); err != nil {
+	if err := connManager.SendMessage(userId, msg); err != nil {
 		log.Printf("error sending message: %v", err)
 		return
+	}
+	queues := []string{
+		messaging.DriverCmdTripRequestQueue,
+	}
+	for _, queue := range queues {
+		consumer := messaging.NewQueueConsumer(rb, connManager, queue)
+		if err := consumer.Start(); err != nil {
+			log.Printf("failed to start consumer for queue %s: %v", queue, err)
+			continue
+		}
 	}
 	for {
 		_, message, err := conn.ReadMessage()
