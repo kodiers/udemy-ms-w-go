@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"ride-sharing/services/trip-service/internal/domain"
 	tripTypes "ride-sharing/services/trip-service/pkg/types"
+	pbd "ride-sharing/shared/proto/driver"
 	pb "ride-sharing/shared/proto/trip"
 	"ride-sharing/shared/types"
 
@@ -93,6 +94,13 @@ func (s *TripService) GetAndValidateFare(ctx context.Context, fareID, userID str
 		return nil, fmt.Errorf("invalid user id")
 	}
 	return fare, nil
+}
+
+func (s *TripService) GetTripById(ctx context.Context, tripID string) (*domain.TripModel, error) {
+	return s.repository.GetTripById(ctx, tripID)
+}
+func (s *TripService) UpdateTrip(ctx context.Context, tripID string, status string, driver *pbd.Driver) error {
+	return s.repository.UpdateTrip(ctx, tripID, status, driver)
 }
 
 func estimateFareRoute(fare *domain.RideFareModel, route *tripTypes.OsrmApiResponse) *domain.RideFareModel {

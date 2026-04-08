@@ -48,6 +48,8 @@ func main() {
 	defer rabbitmq.Close()
 
 	publisher := events.NewTripEventPublisher(rabbitmq)
+	driverConsumer := events.NewDriverResponseConsumer(rabbitmq, svc)
+	go driverConsumer.Listen()
 
 	grpcServer := grpcserver.NewServer()
 	// TODO init grpc handler
