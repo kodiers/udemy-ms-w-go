@@ -2,10 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"ride-sharing/services/api-gateway/grpc_clients"
 	"ride-sharing/shared/contracts"
+	"ride-sharing/shared/env"
+	"ride-sharing/shared/messaging"
+
+	"github.com/stripe/stripe-go/v81"
+	"github.com/stripe/stripe-go/v81/webhook"
 )
 
 func handleTripPreview(w http.ResponseWriter, r *http.Request) {
@@ -65,4 +71,57 @@ func handleTripCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJson(w, http.StatusCreated, response)
 
+}
+
+func handleStripeWebhook(w http.ResponseWriter, r *http.Request, rb *messaging.RabbitMQ) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
+	webhookKey := env.GetString("STRIPE_WEBHOOK_KEY", "")
+	if webhookKey == "" {
+		http.Error(w, "Missing Stripe webhook key", http.StatusInternalServerError)
+		return
+	}
+	event, err := webhook.ConstructEventWithOptions(body, r.Header.Get("Stripe-Signature"), webhookKey,
+		webhook.ConstructEventOptions{IgnoreAPIVersionMismatch: true})
+	if err != nil {
+		log.Printf("failed to construct webhook event: %v", err)
+		http.Error(w, "Failed to process Stripe webhook", http.StatusInternalServerError)
+		return
+	}
+	switch event.Type {
+	case "checkout.session.completed":
+		var sess stripe.CheckoutSession
+		err = json.Unmarshal(event.Data.Raw, &sess)
+		if err != nil {
+			log.Printf("failed to unmarshal checkout session: %v", err)
+			http.Error(w, "Failed to process Stripe webhook", http.StatusInternalServerError)
+			return
+		}
+		payload := messaging.PaymentStatusUpdateData{
+			TripID:   sess.Metadata["trip_id"],
+			UserID:   sess.Metadata["user_id"],
+			DriverID: sess.Metadata["driver_id"],
+		}
+
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			log.Printf("Error marshalling payload: %v", err)
+			http.Error(w, "Failed to marshal payload", http.StatusInternalServerError)
+			return
+		}
+
+		message := contracts.AmqpMessage{
+			OwnerID: sess.Metadata["user_id"],
+			Data:    payloadBytes,
+		}
+		if err = rb.PublishMessage(r.Context(), contracts.PaymentEventSuccess, message); err != nil {
+			log.Printf("failed to publish payment success event: %v", err)
+			http.Error(w, "Failed to process Stripe webhook", http.StatusInternalServerError)
+			return
+		}
+	}
 }

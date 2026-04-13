@@ -35,6 +35,9 @@ func main() {
 	mux.HandleFunc("/ws/riders", func(writer http.ResponseWriter, request *http.Request) {
 		handleRidersWebSocket(writer, request, rabbitmq)
 	})
+	mux.HandleFunc("/webhook/strip", func(writer http.ResponseWriter, request *http.Request) {
+		handleStripeWebhook(writer, request, rabbitmq)
+	})
 
 	server := &http.Server{
 		Addr:    httpAddr,

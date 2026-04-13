@@ -51,6 +51,9 @@ func main() {
 	driverConsumer := events.NewDriverResponseConsumer(rabbitmq, svc)
 	go driverConsumer.Listen()
 
+	paymentConsumer := events.NewPaymentConsumer(rabbitmq, svc)
+	go paymentConsumer.Listen()
+
 	grpcServer := grpcserver.NewServer()
 	// TODO init grpc handler
 
