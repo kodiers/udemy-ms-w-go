@@ -38,7 +38,7 @@ func (r *InMemRepository) GetRideFareById(ctx context.Context, fareID string) (*
 	return fare, nil
 }
 
-func (r *InMemRepository) GetTripByID(ctx context.Context, id string) (*domain.TripModel, error) {
+func (r *InMemRepository) GetTripById(ctx context.Context, id string) (*domain.TripModel, error) {
 	trip, ok := r.trips[id]
 	if !ok {
 		return nil, nil
