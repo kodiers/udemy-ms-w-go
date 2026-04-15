@@ -39,17 +39,17 @@ func main() {
 		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
 	}
 	defer rabbitmq.Close()
-	mux.HandleFunc("POST /trip/preview", enableCors(handleTripPreview))
-	mux.HandleFunc("POST /trip/start", enableCors(handleTripCreate))
-	mux.HandleFunc("/ws/drivers", func(writer http.ResponseWriter, request *http.Request) {
+	mux.Handle("POST /trip/preview", tracing.WrapHandlerFunc(enableCors(handleTripPreview), "handleTripPreview"))
+	mux.Handle("POST /trip/start", tracing.WrapHandlerFunc(enableCors(handleTripCreate), "handleTripCreate"))
+	mux.Handle("/ws/drivers", tracing.WrapHandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		handleDriversWebSocket(writer, request, rabbitmq)
-	})
-	mux.HandleFunc("/ws/riders", func(writer http.ResponseWriter, request *http.Request) {
+	}, "handleDriversWebSocket"))
+	mux.Handle("/ws/riders", tracing.WrapHandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		handleRidersWebSocket(writer, request, rabbitmq)
-	})
-	mux.HandleFunc("/webhook/strip", func(writer http.ResponseWriter, request *http.Request) {
+	}, "handleRidersWebSocket"))
+	mux.Handle("/webhook/strip", tracing.WrapHandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		handleStripeWebhook(writer, request, rabbitmq)
-	})
+	}, "handleStripeWebhook"))
 
 	server := &http.Server{
 		Addr:    httpAddr,

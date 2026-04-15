@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"ride-sharing/shared/contracts"
+	"ride-sharing/shared/tracing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -53,12 +54,12 @@ func (r *RabbitMQ) PublishMessage(ctx context.Context, routingKey string, messag
 	if err != nil {
 		return err
 	}
-	return r.Channel.PublishWithContext(ctx, TripExchange, routingKey, false, false,
-		amqp.Publishing{
-			ContentType:  "text/plain",
-			Body:         jsonMessage,
-			DeliveryMode: amqp.Persistent,
-		})
+	msg := amqp.Publishing{
+		ContentType:  "application/json",
+		Body:         jsonMessage,
+		DeliveryMode: amqp.Persistent,
+	}
+	return tracing.TracedPublisher(ctx, TripExchange, routingKey, msg, r.publish)
 }
 
 func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) error {
@@ -71,24 +72,32 @@ func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) err
 		return err
 	}
 
-	ctx := context.Background()
-
 	go func() {
 		for msg := range msgs {
-			if err := handler(ctx, msg); err != nil {
-				log.Printf("error handling message: %v", err)
-				if nackErr := msg.Nack(false, true); nackErr != nil {
-					log.Printf("error nacking message: %v", nackErr)
+			if err := tracing.TracedConsumer(msg, func(ctx context.Context, delivery amqp.Delivery) error {
+				if err := handler(ctx, msg); err != nil {
+					log.Printf("error handling message: %v", err)
+					if nackErr := msg.Nack(false, true); nackErr != nil {
+						log.Printf("error nacking message: %v", nackErr)
+					}
+					return err
 				}
-				continue
+				if ackErr := msg.Ack(true); ackErr != nil {
+					log.Printf("error acking message: %v", ackErr)
+				}
+				return nil
+			}); err != nil {
+				log.Printf("error handling message: %v", err)
 			}
-			if ackErr := msg.Ack(true); ackErr != nil {
-				log.Printf("error acking message: %v", ackErr)
-			}
+
 		}
 	}()
 
 	return nil
+}
+
+func (r *RabbitMQ) publish(ctx context.Context, routingKey string, exchange string, message amqp.Publishing) error {
+	return r.Channel.PublishWithContext(ctx, exchange, routingKey, false, false, message)
 }
 
 func (r *RabbitMQ) setupExchangesAndQueues() error {

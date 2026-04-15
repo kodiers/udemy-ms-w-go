@@ -3,6 +3,7 @@ package grpc_clients
 import (
 	"os"
 	pb "ride-sharing/shared/proto/trip"
+	"ride-sharing/shared/tracing"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -18,7 +19,8 @@ func NewTripServiceClient() (*tripServiceClient, error) {
 	if tripServiceUrl == "" {
 		tripServiceUrl = "trip-service:8083"
 	}
-	conn, err := grpc.NewClient(tripServiceUrl, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dialOptions := append(tracing.DialOptionsWithTracing(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(tripServiceUrl, dialOptions...)
 	if err != nil {
 		return nil, err
 	}

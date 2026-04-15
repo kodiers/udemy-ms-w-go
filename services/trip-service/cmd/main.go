@@ -12,6 +12,7 @@ import (
 	"ride-sharing/services/trip-service/internal/service"
 	"ride-sharing/shared/env"
 	"ride-sharing/shared/messaging"
+	"ride-sharing/shared/tracing"
 	"syscall"
 
 	grpcserver "google.golang.org/grpc"
@@ -54,7 +55,7 @@ func main() {
 	paymentConsumer := events.NewPaymentConsumer(rabbitmq, svc)
 	go paymentConsumer.Listen()
 
-	grpcServer := grpcserver.NewServer()
+	grpcServer := grpcserver.NewServer(tracing.WithTracingInterceptors()...)
 	// TODO init grpc handler
 
 	grpc.NewGrpcHandler(grpcServer, svc, publisher)

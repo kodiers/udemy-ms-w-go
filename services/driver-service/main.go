@@ -55,7 +55,7 @@ func main() {
 	}
 
 	service := NewService()
-	grpcServer := grpcserver.NewServer()
+	grpcServer := grpcserver.NewServer(tracing.WithTracingInterceptors()...)
 	// TODO init grpc handler
 	NewGrpcHandler(grpcServer, service)
 
