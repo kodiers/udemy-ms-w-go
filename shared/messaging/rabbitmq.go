@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"ride-sharing/shared/contracts"
+	"ride-sharing/shared/retry"
 	"ride-sharing/shared/tracing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -16,7 +17,8 @@ type RabbitMQ struct {
 }
 
 const (
-	TripExchange = "trips"
+	TripExchange       = "trips"
+	DeadLetterExchange = "dlx"
 )
 
 type MessageHandler func(ctx context.Context, msg amqp.Delivery) error
@@ -75,6 +77,23 @@ func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) err
 	go func() {
 		for msg := range msgs {
 			if err := tracing.TracedConsumer(msg, func(ctx context.Context, delivery amqp.Delivery) error {
+				cfg := retry.DefaultConfig()
+				err := retry.WithBackoff(ctx, cfg, func() error {
+					return handler(ctx, delivery)
+				})
+				if err != nil {
+					headers := amqp.Table{}
+					if delivery.Headers != nil {
+						headers = delivery.Headers
+					}
+					headers["x-death-reason"] = err.Error()
+					headers["x-origin-exchange"] = delivery.Exchange
+					headers["x-origin-routing-key"] = delivery.RoutingKey
+					headers["x-retry-count"] = cfg.MaxRetries
+					delivery.Headers = headers
+					delivery.Reject(false)
+					return err
+				}
 				if err := handler(ctx, msg); err != nil {
 					log.Printf("error handling message: %v", err)
 					if nackErr := msg.Nack(false, true); nackErr != nil {
@@ -100,7 +119,26 @@ func (r *RabbitMQ) publish(ctx context.Context, routingKey string, exchange stri
 	return r.Channel.PublishWithContext(ctx, exchange, routingKey, false, false, message)
 }
 
+func (r *RabbitMQ) setupDeadLetterExchange() error {
+	err := r.Channel.ExchangeDeclare(DeadLetterExchange, "topic", true, false, false, false, nil)
+	if err != nil {
+		return err
+	}
+	q, err := r.Channel.QueueDeclare(DeadLetterQueue, true, false, false, false, nil)
+	if err != nil {
+		return err
+	}
+	err = r.Channel.QueueBind(q.Name, "#", DeadLetterExchange, false, nil)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *RabbitMQ) setupExchangesAndQueues() error {
+	if err := r.setupDeadLetterExchange(); err != nil {
+		return err
+	}
 	err := r.Channel.ExchangeDeclare(TripExchange, "topic", true, false, false, false, nil)
 	if err != nil {
 		return err
@@ -162,7 +200,10 @@ func (r *RabbitMQ) setupExchangesAndQueues() error {
 }
 
 func (r *RabbitMQ) declareAndBindQueue(queueName string, messageTypes []string, exchange string) error {
-	q, err := r.Channel.QueueDeclare(queueName, true, false, false, false, nil)
+	args := amqp.Table{
+		"x-dead-letter-exchange": DeadLetterExchange,
+	}
+	q, err := r.Channel.QueueDeclare(queueName, true, false, false, false, args)
 	if err != nil {
 		return err
 	}
